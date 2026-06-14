@@ -22,34 +22,49 @@ export class Uploader {
   constructor(props: UploaderProps) {
     const { chunkSize } = props;
     this.chunkSize = chunkSize;
-    this.workers = this.createWorker();
     // 用户创建uploader实例，
     // 调用start传入File，开始计算hash，分片上传  保证一个实例可以上传多个文件不需要再每次上传时创建实例
   }
 
   start = (file: File) => {
+    if (!(file instanceof Blob)) {
+      throw new TypeError('file must be a File or Blob');
+    }
+    if (file.size === 0) {
+      throw new Error('file must not be empty');
+    }
+    if (this.chunkSize <= 0) {
+      throw new RangeError('chunkSize must be greater than 0');
+    }
     this.reset();
-    this.computeChunkHashes(file);
+    this.chunks = chunkFile(file, this.chunkSize);
+    this.workers = this.createWorker(this.chunks.length);
+    this.computeChunkHashes();
   };
 
-  private computeChunkHashes = (file: File) => {
-    this.chunks = chunkFile(file, this.chunkSize);
+  private computeChunkHashes = () => {
     const hashStartListeners = this.getListener(EventName.HashStart);
     hashStartListeners.forEach((listener) => listener());
     this.workers.forEach(this.dispatchWorker);
   };
 
   private dispatchWorker = async (worker: Worker) => {
-    const nextChunk = this.getNextChunk();
-    if (nextChunk) {
-      const { chunk, index } = nextChunk;
-      const chunkArrayBuffer = await chunk.arrayBuffer();
-      worker.postMessage(
-        {
-          chunk: chunkArrayBuffer,
-          index,
-        },
-        [chunkArrayBuffer],
+    try {
+      const nextChunk = this.getNextChunk();
+      if (nextChunk) {
+        const { chunk, index } = nextChunk;
+        const chunkArrayBuffer = await chunk.arrayBuffer();
+        worker.postMessage(
+          {
+            chunk: chunkArrayBuffer,
+            index,
+          },
+          [chunkArrayBuffer],
+        );
+      }
+    } catch (err) {
+      this.handleHashError(
+        err instanceof Error ? err : new Error('read or dispatch chunk failed'),
       );
     }
   };
@@ -67,13 +82,13 @@ export class Uploader {
     };
   };
 
-  private createWorker = () => {
-    const workerPoolSize = getWorkerPoolSize();
+  private createWorker = (chunkCount: number) => {
+    const workerPoolSize = Math.min(getWorkerPoolSize(), chunkCount);
     const workers: Worker[] = [];
     for (let i = 0; i < workerPoolSize; i++) {
       const worker = new Worker(new URL('./hashWorker.ts', import.meta.url));
       worker.onmessage = (event) => {
-        const { success, hash, index } = event.data;
+        const { success, hash, index, error: workerError } = event.data;
         if (success && !this.hashError) {
           this.chunkHashes[index] = hash;
           this.resolvedChunkCount++;
@@ -88,19 +103,30 @@ export class Uploader {
           if (this.resolvedChunkCount === chunkLen) {
             const hashFinishedListener = this.getListener(EventName.HashFinished);
             hashFinishedListener.forEach((listener) => listener());
-            this.workers.forEach((worker) => worker.terminate());
+            this.terminateWorkers();
           }
-        } else {
-          const hashErrorListener = this.getListener(EventName.HashError);
-          const hashError = new Error('calculate hash error');
-          this.hashError = true;
-          hashErrorListener.forEach((listener) => listener(hashError));
-          this.workers.forEach((worker) => worker.terminate());
+        } else if (!this.hashError) {
+          this.handleHashError(
+            new Error(workerError || 'calculate hash error'),
+          );
         }
       };
       workers.push(worker);
     }
     return workers;
+  };
+
+  private terminateWorkers = () => {
+    this.workers.forEach((worker) => worker.terminate());
+    this.workers = [];
+  };
+
+  private handleHashError = (error: Error) => {
+    if (this.hashError) return; // 只触发一次
+    this.hashError = true;
+    const hashErrorListener = this.getListener(EventName.HashError);
+    hashErrorListener.forEach((listener) => listener(error));
+    this.terminateWorkers();
   };
 
   private getListener = <T extends EventName>(name: T): EventMap[T][] => {
@@ -129,11 +155,5 @@ export class Uploader {
     this.nextResolveChunkIndex = 0;
     this.chunks = [];
     this.chunkHashes = [];
-    this.listeners = {
-      [EventName.HashStart]: [],
-      [EventName.HashProcess]: [],
-      [EventName.HashFinished]: [],
-      [EventName.HashError]: [],
-    };
   };
 }

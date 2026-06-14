@@ -9,11 +9,12 @@ self.onmessage = (event: MessageEvent) => {
       index,
       success: true,
     });
-  } catch {
+  } catch (err) {
     self.postMessage({
       hash: '',
       index,
       success: false,
+      error: err instanceof Error ? err.message : 'unknown hash error',
     });
   }
 };
