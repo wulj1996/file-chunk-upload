@@ -1,6 +1,6 @@
 {
   "name": "file-chunk-upload",
-  "private": true,
+  "private": false,
   "version": "1.0.0",
   "description": "大文件分片上传工具库",
   "main": "dist/index.js",
@@ -11,17 +11,19 @@
   ],
   "scripts": {
     "dev": "webpack --config webpack.config.js --mode development --watch",
-    "build": "webpack --config webpack.config.js --mode production",
+    "build": "rimraf dist && webpack --config webpack.config.js --mode production && tsc --emitDeclarationOnly",
+    "prepublishOnly": "npm run build",
     "lint": "eslint \"src/**/*.{ts,tsx}\" --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx}\""
   },
   "dependencies": {
     "react": "^18.3.1",
-    "yarn": "^1.22.22"
+    "spark-md5": "^3.0.2"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",
+    "@types/spark-md5": "^3.0.5",
     "@typescript-eslint/eslint-plugin": "^7.13.0",
     "@typescript-eslint/parser": "^7.13.0",
     "eslint": "^8.57.0",
