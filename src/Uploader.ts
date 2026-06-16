@@ -63,9 +63,7 @@ export class Uploader {
         );
       }
     } catch (err) {
-      this.handleHashError(
-        err instanceof Error ? err : new Error('read or dispatch chunk failed'),
-      );
+      this.handleHashError(err instanceof Error ? err : new Error('read or dispatch chunk failed'));
     }
   };
 
@@ -93,12 +91,14 @@ export class Uploader {
           this.chunkHashes[index] = hash;
           this.resolvedChunkCount++;
           const chunkLen = this.chunks.length;
-          if (this.resolvedChunkCount < chunkLen) {
+          if (this.resolvedChunkCount <= chunkLen) {
             const hashProcessListener = this.getListener(EventName.HashProcess);
             hashProcessListener.forEach((listener) =>
               listener(Number((this.resolvedChunkCount / chunkLen).toFixed(2))),
             );
-            this.dispatchWorker(worker);
+            if (this.resolvedChunkCount < chunkLen) {
+              this.dispatchWorker(worker);
+            }
           }
           if (this.resolvedChunkCount === chunkLen) {
             const hashFinishedListener = this.getListener(EventName.HashFinished);
@@ -106,9 +106,7 @@ export class Uploader {
             this.terminateWorkers();
           }
         } else if (!this.hashError) {
-          this.handleHashError(
-            new Error(workerError || 'calculate hash error'),
-          );
+          this.handleHashError(new Error(workerError || 'calculate hash error'));
         }
       };
       workers.push(worker);
