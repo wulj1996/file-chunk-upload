@@ -1,27 +1,28 @@
-import { UploaderProps, EventName, EventMap } from './type';
+import { UploaderProps } from './type';
 import { chunkFile, getWorkerPoolSize } from './utils';
 
 export class Uploader {
   private workers: Worker[] = [];
   private chunkSize: number;
 
-  private listeners: {
-    [K in EventName]: EventMap[K][];
-  } = {
-    [EventName.HashStart]: [],
-    [EventName.HashProcess]: [],
-    [EventName.HashFinished]: [],
-    [EventName.HashError]: [],
-  };
   private chunkHashes: string[] = [];
   private chunks: Blob[] = [];
   private nextResolveChunkIndex = 0;
   private resolvedChunkCount = 0;
   private hashError = false;
 
+  private onHashStart: UploaderProps['onHashStart'];
+  private onHashProcess: UploaderProps['onHashProcess'];
+  private onHashFinished: UploaderProps['onHashFinished'];
+  private onHashError: UploaderProps['onHashError'];
+
   constructor(props: UploaderProps) {
-    const { chunkSize } = props;
+    const { chunkSize, onHashStart, onHashProcess, onHashFinished, onHashError } = props;
     this.chunkSize = chunkSize;
+    this.onHashStart = onHashStart;
+    this.onHashProcess = onHashProcess;
+    this.onHashFinished = onHashFinished;
+    this.onHashError = onHashError;
     // 用户创建uploader实例，
     // 调用start传入File，开始计算hash，分片上传  保证一个实例可以上传多个文件不需要再每次上传时创建实例
   }
@@ -43,8 +44,7 @@ export class Uploader {
   };
 
   private computeChunkHashes = () => {
-    const hashStartListeners = this.getListener(EventName.HashStart);
-    hashStartListeners.forEach((listener) => listener());
+    this.onHashStart?.();
     this.workers.forEach(this.dispatchWorker);
   };
 
@@ -63,22 +63,20 @@ export class Uploader {
         );
       }
     } catch (err) {
-      this.handleHashError(
-        err instanceof Error ? err : new Error('read or dispatch chunk failed'),
-      );
+      this.handleHashError(err instanceof Error ? err : new Error('read or dispatch chunk failed'));
     }
   };
 
   private getNextChunk = (): { chunk: Blob; index: number } | undefined => {
     const nextChunk = this.chunks[this.nextResolveChunkIndex];
-    const currentResolvedChunkIndex = this.nextResolveChunkIndex;
+    const nextIndex = this.nextResolveChunkIndex;
     if (!nextChunk) {
       return undefined;
     }
     this.nextResolveChunkIndex++;
     return {
       chunk: nextChunk,
-      index: currentResolvedChunkIndex,
+      index: nextIndex,
     };
   };
 
@@ -94,21 +92,15 @@ export class Uploader {
           this.resolvedChunkCount++;
           const chunkLen = this.chunks.length;
           if (this.resolvedChunkCount < chunkLen) {
-            const hashProcessListener = this.getListener(EventName.HashProcess);
-            hashProcessListener.forEach((listener) =>
-              listener(Number((this.resolvedChunkCount / chunkLen).toFixed(2))),
-            );
+            this.onHashProcess?.(Number((this.resolvedChunkCount / chunkLen).toFixed(2)));
             this.dispatchWorker(worker);
           }
           if (this.resolvedChunkCount === chunkLen) {
-            const hashFinishedListener = this.getListener(EventName.HashFinished);
-            hashFinishedListener.forEach((listener) => listener());
+            this.onHashFinished?.(this.chunkHashes);
             this.terminateWorkers();
           }
         } else if (!this.hashError) {
-          this.handleHashError(
-            new Error(workerError || 'calculate hash error'),
-          );
+          this.handleHashError(new Error(workerError || 'calculate hash error'));
         }
       };
       workers.push(worker);
@@ -122,31 +114,10 @@ export class Uploader {
   };
 
   private handleHashError = (error: Error) => {
-    if (this.hashError) return; // 只触发一次
+    if (this.hashError) return;
     this.hashError = true;
-    const hashErrorListener = this.getListener(EventName.HashError);
-    hashErrorListener.forEach((listener) => listener(error));
+    this.onHashError?.(error);
     this.terminateWorkers();
-  };
-
-  private getListener = <T extends EventName>(name: T): EventMap[T][] => {
-    const listener = this.listeners[name] || [];
-    return listener;
-  };
-
-  on = <T extends EventName>(name: T, listener: EventMap[T]) => {
-    const listeners = this.getListener(name);
-    const exited = listeners.includes(listener);
-    if (exited) {
-      console.warn('the callback has already been registered. please don,t register it again');
-    } else {
-      listeners.push(listener);
-    }
-  };
-
-  remove = <T extends EventName>(name: T, listener: EventMap[T]) => {
-    const listeners = this.getListener(name);
-    (this.listeners[name] as EventMap[T][]) = listeners.filter((l) => l !== listener);
   };
 
   private reset = () => {

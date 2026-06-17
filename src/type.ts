@@ -7,18 +7,16 @@ export interface UploaderProps {
 
   /** 重试次数 */
   retryCount: number;
-}
 
-export enum EventName {
-  HashStart = 'HashStart',
-  HashProcess = 'HashProcess',
-  HashFinished = 'HashFinished',
-  HashError = 'HashError',
-}
+  /** hash 计算开始 */
+  onHashStart?: () => void;
 
-export interface EventMap {
-  [EventName.HashStart]: () => void;
-  [EventName.HashProcess]: (progress: number) => void;
-  [EventName.HashFinished]: () => void;
-  [EventName.HashError]: (err: Error) => void;
+  /** hash 计算进度 (0-1) */
+  onHashProcess?: (progress: number) => void;
+
+  /** hash 计算完成 */
+  onHashFinished?: (chunkHashes: string[]) => void;
+
+  /** hash 计算出错 */
+  onHashError?: (error: Error) => void;
 }
