@@ -1,9 +1,12 @@
-import { UploaderProps } from './type';
+import { UploadChunk, UploaderProps } from './type';
 import { chunkFile, getWorkerPoolSize } from './utils';
+import { ConcurrentScheduler } from './ConcurrentScheduler';
 
 export class Uploader {
   private workers: Worker[] = [];
   private chunkSize: number;
+  private concurrency: number;
+  private retryCount: number;
 
   private chunkHashes: string[] = [];
   private chunks: Blob[] = [];
@@ -16,15 +19,39 @@ export class Uploader {
   private onHashFinished: UploaderProps['onHashFinished'];
   private onHashError: UploaderProps['onHashError'];
 
+  private onUploadProgress: UploaderProps['onUploadProgress'];
+  private onUploadFinished: UploaderProps['onUploadFinished'];
+  private onUploadError: UploaderProps['onUploadError'];
+
+  private uploadChunkFn: UploaderProps['uploadChunk'];
+
+  private uploadScheduler: ConcurrentScheduler | null = null;
+
   constructor(props: UploaderProps) {
-    const { chunkSize, onHashStart, onHashProcess, onHashFinished, onHashError } = props;
+    const {
+      chunkSize,
+      concurrency,
+      retryCount,
+      uploadChunk,
+      onHashStart,
+      onHashProcess,
+      onHashFinished,
+      onHashError,
+      onUploadProgress,
+      onUploadFinished,
+      onUploadError,
+    } = props;
     this.chunkSize = chunkSize;
+    this.concurrency = concurrency;
+    this.retryCount = retryCount;
+    this.uploadChunkFn = uploadChunk;
     this.onHashStart = onHashStart;
     this.onHashProcess = onHashProcess;
     this.onHashFinished = onHashFinished;
     this.onHashError = onHashError;
-    // 用户创建uploader实例，
-    // 调用start传入File，开始计算hash，分片上传  保证一个实例可以上传多个文件不需要再每次上传时创建实例
+    this.onUploadProgress = onUploadProgress;
+    this.onUploadFinished = onUploadFinished;
+    this.onUploadError = onUploadError;
   }
 
   start = (file: File) => {
@@ -98,6 +125,7 @@ export class Uploader {
           if (this.resolvedChunkCount === chunkLen) {
             this.onHashFinished?.(this.chunkHashes);
             this.terminateWorkers();
+            this.startUpload();
           }
         } else if (!this.hashError) {
           this.handleHashError(new Error(workerError || 'calculate hash error'));
@@ -120,11 +148,44 @@ export class Uploader {
     this.terminateWorkers();
   };
 
+  private startUpload = () => {
+    const totalChunks = this.chunks.length;
+    const tasks: UploadChunk[] = this.chunks.map((chunk, i) => ({
+      index: i,
+      hash: this.chunkHashes[i],
+      chunk,
+      chunkSize: chunk.size,
+      totalChunks,
+    }));
+
+    this.uploadScheduler = new ConcurrentScheduler({
+      concurrency: this.concurrency,
+      retryCount: this.retryCount,
+      executor: async (task) => {
+        await this.uploadChunkFn(task);
+      },
+      onProgress: (completed, total) => {
+        const progress = Number((completed / total).toFixed(2));
+        this.onUploadProgress?.(progress);
+      },
+    });
+
+    this.uploadScheduler.start(tasks).then(
+      () => {
+        this.onUploadFinished?.();
+      },
+      (err) => {
+        this.onUploadError?.(err instanceof Error ? err : new Error(String(err)), -1);
+      },
+    );
+  };
+
   private reset = () => {
     this.hashError = false;
     this.resolvedChunkCount = 0;
     this.nextResolveChunkIndex = 0;
     this.chunks = [];
     this.chunkHashes = [];
+    this.uploadScheduler = null;
   };
 }
