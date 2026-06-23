@@ -1,6 +1,6 @@
-import { UploadChunk, UploaderProps } from './type';
-import { chunkFile, getWorkerPoolSize } from './utils';
-import { ConcurrentScheduler } from './ConcurrentScheduler';
+import { UploadChunk, UploaderProps } from '../types';
+import { chunkFile, getWorkerPoolSize } from '../utils';
+import { ConcurrentExecutor } from './ConcurrentExecutor';
 
 export class Uploader {
   private workers: Worker[] = [];
@@ -25,7 +25,7 @@ export class Uploader {
 
   private uploadChunkFn: UploaderProps['uploadChunk'];
 
-  private uploadScheduler: ConcurrentScheduler | null = null;
+  private uploadExecutor: ConcurrentExecutor | null = null;
 
   constructor(props: UploaderProps) {
     const {
@@ -111,7 +111,7 @@ export class Uploader {
     const workerPoolSize = Math.min(getWorkerPoolSize(), chunkCount);
     const workers: Worker[] = [];
     for (let i = 0; i < workerPoolSize; i++) {
-      const worker = new Worker(new URL('./hashWorker.ts', import.meta.url));
+      const worker = new Worker(new URL('../workers/hashWorker.ts', import.meta.url));
       worker.onmessage = (event) => {
         const { success, hash, index, error: workerError } = event.data;
         if (success && !this.hashError) {
@@ -158,7 +158,7 @@ export class Uploader {
       totalChunks,
     }));
 
-    this.uploadScheduler = new ConcurrentScheduler({
+    this.uploadExecutor = new ConcurrentExecutor({
       concurrency: this.concurrency,
       retryCount: this.retryCount,
       executor: async (task) => {
@@ -170,7 +170,7 @@ export class Uploader {
       },
     });
 
-    this.uploadScheduler.start(tasks).then(
+    this.uploadExecutor.start(tasks).then(
       () => {
         this.onUploadFinished?.();
       },
@@ -186,6 +186,6 @@ export class Uploader {
     this.nextResolveChunkIndex = 0;
     this.chunks = [];
     this.chunkHashes = [];
-    this.uploadScheduler = null;
+    this.uploadExecutor = null;
   };
 }

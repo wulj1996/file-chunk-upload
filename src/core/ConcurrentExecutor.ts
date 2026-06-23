@@ -1,19 +1,19 @@
-import { UploadChunk } from './type';
+import { UploadChunk } from '../types';
 
-export interface ConcurrentSchedulerOptions {
+export interface ConcurrentExecutorOptions {
   concurrency: number;
   retryCount: number;
   executor: (task: UploadChunk) => Promise<void>;
   onProgress: (completed: number, total: number) => void;
 }
 
-export class ConcurrentScheduler {
+export class ConcurrentExecutor {
   private concurrency: number;
   private retryCount: number;
   private executor: (task: UploadChunk) => Promise<void>;
   private onProgress: (completed: number, total: number) => void;
 
-  constructor(options: ConcurrentSchedulerOptions) {
+  constructor(options: ConcurrentExecutorOptions) {
     const { concurrency, retryCount, executor, onProgress } = options;
     this.concurrency = concurrency;
     this.retryCount = retryCount;

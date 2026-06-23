@@ -1,1 +1,1 @@
-export { Uploader } from './Uploader';
+export { Uploader } from './core/Uploader';
