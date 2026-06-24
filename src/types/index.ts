@@ -29,3 +29,8 @@ export interface UploaderProps {
 
   onUploadError?: (error: Error, chunkIndex: number) => void;
 }
+
+import { UploaderEventName, UploaderEventMap } from './event';
+
+export { UploaderEventName };
+export type { UploaderEventMap };
